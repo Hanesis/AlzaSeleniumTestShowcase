@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using AlzaSeleniumTest.HelpMethods;
@@ -7,7 +6,6 @@ using FluentAssertions;
 using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
-using Path = System.IO.Path;
 
 namespace AlzaSeleniumTest.Tests
 {
@@ -60,8 +58,8 @@ namespace AlzaSeleniumTest.Tests
 
             CloseAdvertisementIfShown(_webDriver);
             DownloadOrderPdf(_webDriver);
-            var orderDetails = Utils.WaitUntilPdfIsAvailableInTempFolder(_tempDirectory, ref orderNumber);
 
+            var orderDetails = Utils.WaitUntilPdfIsAvailableInTempFolder(_tempDirectory, ref orderNumber);
             orderDetails.Should().Contain("Objednávka " + orderNumber.Replace(" ", ""));
             orderDetails.Should().Contain(minimalPriceInCategory.Replace("-", "00"));
             orderDetails.Should().Contain($"Způsob úhrady: Hotově - {DeliveryPlace}");
@@ -71,12 +69,10 @@ namespace AlzaSeleniumTest.Tests
             CancelOrder();
         }
 
-        
-
         private void CancelOrder()
         {
-            //Order has to be processed - sometime it takes a while
-            var cancelElement = WaitForElementWithText(_webDriver, By.ClassName("mat-raised-button"), "Zrušit objednávku",30);
+            //Order has to be processed by server - sometime it takes a while
+            var cancelElement = WaitForElementWithText(_webDriver, By.ClassName("mat-raised-button"), "Zrušit objednávku",60);
             cancelElement.Click();
             FindElement(_webDriver, By.ClassName("flat-button")).Click();
             ElementIsClickable(_webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted"));
