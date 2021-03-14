@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using AlzaSeleniumTest.HelpMethods;
@@ -14,7 +15,7 @@ namespace AlzaSeleniumTest.Tests
     {
         private const string DeliveryPlace = "Olomouc";
         private const int Timeout = 3000;
-        private string _tempDirectory;
+        private static string _tempDirectory;
         private const string CustomerEmail = "fake@email.com";
         private const string PhoneNumber = "777555222";
         private ChromeOptions _chromeOptions;
@@ -25,6 +26,8 @@ namespace AlzaSeleniumTest.Tests
         {
             _tempDirectory = Utils.GetTemporaryDirectory();
             _chromeOptions = SetChromeOptions(_tempDirectory);
+            _webDriver = new ChromeDriver(_chromeOptions);
+            _webDriver.Navigate().GoToUrl("https://www.alza.cz/");
         }
 
         [TearDown]
@@ -33,22 +36,20 @@ namespace AlzaSeleniumTest.Tests
             _webDriver.Dispose();
         }
 
+        [TestCase("litp18855068")]
         [TestCase("litp18843445")]
         public void BuyCheapestProductFromCategory(string category)
         {
-            _webDriver = new ChromeDriver(_chromeOptions);
-            _webDriver.Navigate().GoToUrl("https://www.alza.cz/");
-           
             //GIVEN information about cheapest product in category
             var minimalPriceInCategory = OpenCategoryAndLocateMinimalPrice(_webDriver, category);
             LocateProductWithMinimalPrice(_webDriver, minimalPriceInCategory);
 
             //WHEN it is possible to go through order procedure
-            var productName = ConfirmOrderInShopingCart(_webDriver);
-            SetPickupPointAndPaymantMethod(_webDriver);
-            FillinCustomerInformation(_webDriver);
+            var productName = ConfirmOrderInShoppingCart(_webDriver);
+            SetPickupPointAndPaymentMethod(_webDriver);
+            FillInCustomerInformation(_webDriver);
 
-            //THEN Order is success and Pdf has valid information
+            //THEN Order is in success state and Pdf has valid information
             var doneInfoBlock = FindElement(_webDriver, By.ClassName("doneInfoBlock"));
             var orderNumber = GetOrderNumber(doneInfoBlock.Text);
             var successText =  $"Objednávka {orderNumber} úspěšně dokončena";
@@ -58,20 +59,19 @@ namespace AlzaSeleniumTest.Tests
             FindElement(_webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
 
             CloseAdvertisementIfShown(_webDriver);
+            DownloadOrderPdf(_webDriver);
+            var orderDetails = Utils.WaitUntilPdfIsAvailableInTempFolder(_tempDirectory, ref orderNumber);
 
-            DownloadOrderPdf(_webDriver, ref orderNumber);
-            
-            orderNumber = orderNumber.Replace(" ", "");
-            var orderDetails = Utils.GetPdfText(Path.Combine(_tempDirectory, orderNumber + ".pdf"));
-
+            orderDetails.Should().Contain("Objednávka " + orderNumber.Replace(" ", ""));
             orderDetails.Should().Contain(minimalPriceInCategory.Replace("-", "00"));
             orderDetails.Should().Contain($"Způsob úhrady: Hotově - {DeliveryPlace}");
-            orderDetails.Should().Contain("Objednávka " + orderNumber);
             orderDetails.Should().Contain(PhoneNumber);
             orderDetails.Should().Contain(productName);
             
             CancelOrder();
         }
+
+        
 
         private void CancelOrder()
         {
@@ -83,15 +83,13 @@ namespace AlzaSeleniumTest.Tests
             FindElement(_webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted")).Click();
         }
         
-        private static void DownloadOrderPdf(IWebDriver webDriver, ref string orderNumber)
+        private static void DownloadOrderPdf(IWebDriver webDriver)
         {
-
             var downloadElement = WaitForElementWithText(webDriver, By.ClassName("mat-raised-button"), "Stáhnout PDF");
             downloadElement.Click();
-            Thread.Sleep(Timeout); //Wait until pdf is available
         }
 
-        private static void FillinCustomerInformation(ChromeDriver webDriver)
+        private static void FillInCustomerInformation(IWebDriver webDriver)
         {
             FindElement(webDriver, By.Id("userEmail")).Clear();
             FindElement(webDriver, By.Id("userEmail")).SendKeys(CustomerEmail);
@@ -101,13 +99,14 @@ namespace AlzaSeleniumTest.Tests
             FindElement(webDriver, By.XPath("//span[text()='Dokončit objednávku']")).Click();
         }
 
-        private static string OpenCategoryAndLocateMinimalPrice(ChromeDriver webDriver, string category)
+        private static string OpenCategoryAndLocateMinimalPrice(IWebDriver webDriver, string category)
         {
             FindElement(webDriver, By.Id(category)).Click();
             var minimalPriceInCategory =
                 FindElement(webDriver, By.CssSelector(".js-min-value.min-value")).GetAttribute("value");
             return minimalPriceInCategory;
         }
+
         private static void CloseAdvertisementIfShown(IWebDriver webDriver)
         {
             if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody"),2))
@@ -117,12 +116,12 @@ namespace AlzaSeleniumTest.Tests
             }
         }
 
-
-        private static string ConfirmOrderInShopingCart(IWebDriver webDriver)
+        private static string ConfirmOrderInShoppingCart(IWebDriver webDriver)
         {
             var productName = FindElement(webDriver, By.ClassName("productInfo__texts__productName")).Text;
             FindElement(webDriver, By.Id("varBToBasketButton")).Click();
 
+            //Advertisement could by shown
             if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody")))
             {
                 FindElement(webDriver, By.XPath("//span[text()='Nepřidávat nic']")).Click();
@@ -135,18 +134,17 @@ namespace AlzaSeleniumTest.Tests
             return productName;
         }
 
-        private static void SetPickupPointAndPaymantMethod(ChromeDriver webDriver)
+        private static void SetPickupPointAndPaymentMethod(ChromeDriver webDriver)
         {
             FindElement(webDriver, By.ClassName("deliveryCheckboxContainer")).Click();
 
             //Disable AlzaBox
             FindElement(webDriver, By.CssSelector(".alzacheckbox.checkboxa.type-2.checked")).Click();
-
+            
             Thread.Sleep(Timeout);
             FindElement(webDriver, By.Id("personal-pickup__search__input")).SendKeys("Alza " + DeliveryPlace);
             ElementIsClickable(webDriver, By.Id("search-results__alza"));
             FindElement(webDriver, By.Id("search-results__alza")).Click();
-
             FindElement(webDriver, By.XPath("//span[text()='Vyzvednout zde']")).Click();
 
             Thread.Sleep(Timeout);
