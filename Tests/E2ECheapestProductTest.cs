@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using AlzaSeleniumTest.HelpMethods;
 using FluentAssertions;
+using Microsoft.VisualBasic;
 using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
@@ -18,6 +19,7 @@ namespace AlzaSeleniumTest.Tests
         private const string CustomerEmail = "fake@email.com";
         private const string PhoneNumber = "777555222";
         private ChromeOptions _chromeOptions;
+        private ChromeDriver _webDriver;
         
         [SetUp]
         public void Setup()
@@ -25,52 +27,84 @@ namespace AlzaSeleniumTest.Tests
             _tempDirectory = Utils.GetTemporaryDirectory();
             _chromeOptions = SetChromeOptions(_tempDirectory);
         }
-
-        [Test]
-        public void tests()
+        [TearDown]
+        public void TearDown()
         {
-            var webDriver = new ChromeDriver(_chromeOptions);
-            webDriver.Navigate().GoToUrl("https://www.alza.cz/muj-ucet/objednavka-436473053.htm?x=0FD246E78Ba975F1Au5BFDhSt");
-
-            WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
-            var elements = webDriver.FindElements(By.ClassName("mat-raised-button"));
-
-            var elementPdf = elements.FirstOrDefault(e => e.Text == "Stáhnout PDF");
-            elementPdf.Click();
-
-            var text = Utils.GetPdfText(Path.Combine(_tempDirectory, "436473053.pdf"));
+            _webDriver.Dispose();
         }
 
-        [Test]
-        public void BuyCheapestProductFromCategory()
+        [TestCase("litp18843445")]
+        public void BuyCheapestProductFromCategory(string category)
         {
-            var webDriver = new ChromeDriver(_chromeOptions);
-            webDriver.Navigate().GoToUrl("https://www.alza.cz/");
-
+            _webDriver = new ChromeDriver(_chromeOptions);
+            _webDriver.Navigate().GoToUrl("https://www.alza.cz/");
+           
             //GIVEN information about cheapest product in category
-            
-            //open category
-            FindElement(webDriver, By.Id("litp18843445")).Click();
-            var minimalPrice = FindElement(webDriver, By.CssSelector(".js-min-value.min-value")).GetAttribute("value");
-            //sort from lowest price
-            FindElement(webDriver, By.Id("ui-id-6")).Click();
-            WaitForElementWithMinimalPrice(webDriver, By.ClassName("c2"), minimalPrice);
-            var elementsPrice = webDriver.FindElements(By.ClassName("price"));
-            var elementPrice = elementsPrice.First(e => e.Text.Contains(minimalPrice));
-            elementPrice.FindElement(By.ClassName("btnk1")).Click();
+            var minimalPriceInCategory = OpenCategoryAndLocateMinimalPrice(_webDriver, category);
+            LocateProductWithMinimalPrice(_webDriver, minimalPriceInCategory);
 
             //WHEN it is possible to go through order procedure
-            if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody")))
-            {
-                webDriver.FindElement(By.XPath("//span[text()='Nepřidávat nic']")).Click();
-            }
-            else
-            {
-                var button = FindElement(webDriver, By.Id("varBToBasketButton"));
-                button.Click();
-            }
+            var productName = ConfirmOrderInShopingCart(_webDriver);
+            SetPickupPointAndPaymantMethod(_webDriver);
+            FillinCustomerInformation(_webDriver);
 
-            webDriver.FindElement(By.XPath("//span[text()='Pokračovat']")).Click();
+            //THEN Order is success and Pdf has valid information
+            var doneInfoBlock = FindElement(_webDriver, By.ClassName("doneInfoBlock"));
+            var orderNumber = GetOrderNumber(doneInfoBlock.Text);
+            var successText =  $"Objednávka {orderNumber} úspěšně dokončena";
+            
+            StringAssert.Contains(successText, doneInfoBlock.Text);
+
+            DownloadOrderPdfAndCancelOrder(_webDriver, ref orderNumber);
+            
+            orderNumber = orderNumber.Replace(" ", "");
+            var orderDetails = Utils.GetPdfText(Path.Combine(_tempDirectory, orderNumber + ".pdf"));
+            
+            orderDetails.Should().Contain($"Způsob úhrady: Hotově - {DeliveryPlace}");
+            orderDetails.Should().Contain("Mobilní telefon Maxcom MM135");
+            orderDetails.Should().Contain("Objednávka " + orderNumber);
+            orderDetails.Should().Contain(PhoneNumber);
+            orderDetails.Should().Contain("299,00");
+            orderDetails.Should().Contain(productName);
+        }
+
+        private void DownloadOrderPdfAndCancelOrder(ChromeDriver webDriver, ref string orderNumber)
+        {
+            FindElement(webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
+            Thread.Sleep(Timeout);
+            WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
+            var elements = webDriver.FindElements(By.ClassName("mat-raised-button"));
+            elements.First(e => e.Text == "Stáhnout PDF").Click();
+            Thread.Sleep(Timeout);
+
+            elements.First(e => e.Text == "Zrušit objednávku").Click();
+            FindElement(webDriver, By.ClassName("flat-button")).Click();
+            FindElement(webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted")).Click();
+        }
+
+        private static void FillinCustomerInformation(ChromeDriver webDriver)
+        {
+            FindElement(webDriver, By.Id("userEmail")).Clear();
+            FindElement(webDriver, By.Id("userEmail")).SendKeys(CustomerEmail);
+            ElementIsClickable(webDriver, By.Id("inpTelNumber"));
+            FindElement(webDriver, By.Id("inpTelNumber")).SendKeys(PhoneNumber);
+
+            FindElement(webDriver, By.XPath("//span[text()='Dokončit objednávku']")).Click();
+        }
+
+        private static string OpenCategoryAndLocateMinimalPrice(ChromeDriver webDriver, string category)
+        {
+            FindElement(webDriver, By.Id(category)).Click();
+            var minimalPriceInCategory =
+                FindElement(webDriver, By.CssSelector(".js-min-value.min-value")).GetAttribute("value");
+            return minimalPriceInCategory;
+        }
+
+        private static string ConfirmOrderInShopingCart(ChromeDriver webDriver)
+        {
+            var productName = FindElement(webDriver, By.ClassName("productInfo__texts__productName")).Text;
+            FindElement(webDriver, By.Id("varBToBasketButton")).Click();
+            FindElement(webDriver, By.XPath("//span[text()='Pokračovat']")).Click();
 
             if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody")))
             {
@@ -81,6 +115,11 @@ namespace AlzaSeleniumTest.Tests
                 webDriver.FindElement(By.XPath("//span[text()='Pokračovat']")).Click();
             }
 
+            return productName;
+        }
+
+        private static void SetPickupPointAndPaymantMethod(ChromeDriver webDriver)
+        {
             FindElement(webDriver, By.ClassName("deliveryCheckboxContainer")).Click();
 
             //Disable AlzaBox
@@ -99,36 +138,16 @@ namespace AlzaSeleniumTest.Tests
 
             Thread.Sleep(Timeout);
             FindElement(webDriver, By.Id("confirmOrder2Button")).Click();
+        }
 
-            FindElement(webDriver, By.Id("userEmail")).Clear();
-            FindElement(webDriver, By.Id("userEmail")).SendKeys(CustomerEmail);
-            ElementIsClickable(webDriver, By.Id("inpTelNumber"));
-            FindElement(webDriver, By.Id("inpTelNumber")).SendKeys(PhoneNumber);
-
-            FindElement(webDriver, By.XPath("//span[text()='Dokončit objednávku']")).Click();
-
-            var doneInfoBlock = FindElement(webDriver, By.ClassName("doneInfoBlock"));
-            var orderNumber = GetOrderNumber(doneInfoBlock.Text);
-            var successText =  $"Objednávka {orderNumber} úspěšně dokončena";
-            
-            //THEN we can finalizes the order
-            StringAssert.Contains(successText, doneInfoBlock.Text);
-            FindElement(webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
-
-            Thread.Sleep(Timeout);
-            WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
-            var elements = webDriver.FindElements(By.ClassName("mat-raised-button"));
-
-            elements.First(e => e.Text == "Stáhnout PDF").Click();
-
-            Thread.Sleep(Timeout);
-            orderNumber = orderNumber.Replace(" ", "");
-            var orderDetails = Utils.GetPdfText(Path.Combine(_tempDirectory, orderNumber + ".pdf"));
-            orderDetails.Should().Contain("Objednávka " + orderNumber);
-            orderDetails.Should().Contain($"Způsob úhrady: Hotově - {DeliveryPlace}");
-            orderDetails.Should().Contain(PhoneNumber);
-            orderDetails.Should().Contain("344,00 Kč");
-            orderDetails.Should().Contain("Mobilní telefon Maxcom MM135");
+        private static void LocateProductWithMinimalPrice(ChromeDriver webDriver, string minimalPrice)
+        {
+            //sort from lowest price
+            FindElement(webDriver, By.Id("ui-id-6")).Click();
+            WaitForElementWithMinimalPrice(webDriver, By.ClassName("c2"), minimalPrice);
+            var elementsPrice = webDriver.FindElements(By.ClassName("price"));
+            var elementPrice = elementsPrice.First(e => e.Text.Contains(minimalPrice));
+            elementPrice.FindElement(By.ClassName("btnk1")).Click();
         }
 
         static string GetOrderNumber(string orderText)
