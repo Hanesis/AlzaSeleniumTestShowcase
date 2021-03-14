@@ -1,41 +1,35 @@
-﻿using System;
-using System.IO;
-using System.Linq;
-using System.Text;
+﻿using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using AlzaSeleniumTest.HelpMethods;
 using FluentAssertions;
-using iTextSharp.text.pdf;
-using iTextSharp.text.pdf.parser;
 using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
-using OpenQA.Selenium.Support.UI;
-using Org.BouncyCastle.Asn1.Sec;
 using Path = System.IO.Path;
 
-namespace AlzaSeleniumTest
+namespace AlzaSeleniumTest.Tests
 {
-    public class Tests
+    public class E2ECheapestProductTest :TestBase
     {
         private const string DeliveryPlace = "Olomouc";
-        private const int timeout = 3000;
-        private string tempDirectory;
+        private const int Timeout = 3000;
+        private string _tempDirectory;
         private const string CustomerEmail = "fake@email.com";
         private const string PhoneNumber = "777555222";
-        private ChromeOptions chromeOptions;
+        private ChromeOptions _chromeOptions;
+        
         [SetUp]
         public void Setup()
         {
-            tempDirectory = GetTemporaryDirectory();
-            chromeOptions = SetChromeOptions(tempDirectory);
-
+            _tempDirectory = Utils.GetTemporaryDirectory();
+            _chromeOptions = SetChromeOptions(_tempDirectory);
         }
 
         [Test]
         public void tests()
         {
-            var webDriver = new ChromeDriver(chromeOptions);
+            var webDriver = new ChromeDriver(_chromeOptions);
             webDriver.Navigate().GoToUrl("https://www.alza.cz/muj-ucet/objednavka-436473053.htm?x=0FD246E78Ba975F1Au5BFDhSt");
 
             WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
@@ -44,18 +38,18 @@ namespace AlzaSeleniumTest
             var elementPdf = elements.FirstOrDefault(e => e.Text == "Stáhnout PDF");
             elementPdf.Click();
 
-            var text = GetPdfText(Path.Combine(tempDirectory, "436473053.pdf"));
-
+            var text = Utils.GetPdfText(Path.Combine(_tempDirectory, "436473053.pdf"));
         }
-       
 
         [Test]
         public void BuyCheapestProductFromCategory()
         {
-            var webDriver = new ChromeDriver(chromeOptions);
+            var webDriver = new ChromeDriver(_chromeOptions);
             webDriver.Navigate().GoToUrl("https://www.alza.cz/");
 
-            //open cellphone category
+            //GIVEN information about cheapest product in category
+            
+            //open category
             FindElement(webDriver, By.Id("litp18843445")).Click();
             var minimalPrice = FindElement(webDriver, By.CssSelector(".js-min-value.min-value")).GetAttribute("value");
             //sort from lowest price
@@ -65,7 +59,7 @@ namespace AlzaSeleniumTest
             var elementPrice = elementsPrice.First(e => e.Text.Contains(minimalPrice));
             elementPrice.FindElement(By.ClassName("btnk1")).Click();
 
-
+            //WHEN it is possible to go through order procedure
             if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody")))
             {
                 webDriver.FindElement(By.XPath("//span[text()='Nepřidávat nic']")).Click();
@@ -92,18 +86,18 @@ namespace AlzaSeleniumTest
             //Disable AlzaBox
             FindElement(webDriver, By.CssSelector(".alzacheckbox.checkboxa.type-2.checked")).Click();
 
-            Thread.Sleep(timeout);
+            Thread.Sleep(Timeout);
             FindElement(webDriver, By.Id("personal-pickup__search__input")).SendKeys("Alza " + DeliveryPlace);
             ElementIsClickable(webDriver, By.Id("search-results__alza"));
             FindElement(webDriver, By.Id("search-results__alza")).Click();
 
             FindElement(webDriver, By.XPath("//span[text()='Vyzvednout zde']")).Click();
 
-            Thread.Sleep(timeout);
+            Thread.Sleep(Timeout);
             ElementIsClickable(webDriver, By.XPath("//span[text()='Hotově / kartou (při vyzvednutí)']"));
             FindElement(webDriver, By.XPath("//span[text()='Hotově / kartou (při vyzvednutí)']")).Click();
 
-            Thread.Sleep(timeout);
+            Thread.Sleep(Timeout);
             FindElement(webDriver, By.Id("confirmOrder2Button")).Click();
 
             FindElement(webDriver, By.Id("userEmail")).Clear();
@@ -116,19 +110,20 @@ namespace AlzaSeleniumTest
             var doneInfoBlock = FindElement(webDriver, By.ClassName("doneInfoBlock"));
             var orderNumber = GetOrderNumber(doneInfoBlock.Text);
             var successText =  $"Objednávka {orderNumber} úspěšně dokončena";
-
+            
+            //THEN we can finalizes the order
             StringAssert.Contains(successText, doneInfoBlock.Text);
             FindElement(webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
 
-            Thread.Sleep(timeout);
+            Thread.Sleep(Timeout);
             WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
             var elements = webDriver.FindElements(By.ClassName("mat-raised-button"));
 
             elements.First(e => e.Text == "Stáhnout PDF").Click();
 
-            Thread.Sleep(timeout);
+            Thread.Sleep(Timeout);
             orderNumber = orderNumber.Replace(" ", "");
-            var orderDetails = GetPdfText(Path.Combine(tempDirectory, orderNumber + ".pdf"));
+            var orderDetails = Utils.GetPdfText(Path.Combine(_tempDirectory, orderNumber + ".pdf"));
             orderDetails.Should().Contain("Objednávka " + orderNumber);
             orderDetails.Should().Contain($"Způsob úhrady: Hotově - {DeliveryPlace}");
             orderDetails.Should().Contain(PhoneNumber);
@@ -136,67 +131,12 @@ namespace AlzaSeleniumTest
             orderDetails.Should().Contain("Mobilní telefon Maxcom MM135");
         }
 
-        public static string GetOrderNumber(string orderText)
+        static string GetOrderNumber(string orderText)
         {
             return Regex.Match(orderText, "(\\s[\\d]{3}){3}").Value.Trim();
         }
-        
-        public string GetTemporaryDirectory()
-        {
-            var tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            Directory.CreateDirectory(tempDirectory);
-            return tempDirectory;
-        }
-        public static string GetPdfText(string path)
-        {
-            var reader = new PdfReader(path);
-            var text = PdfTextExtractor.GetTextFromPage(reader, 1);
-            reader.Close();
-            return text;
-        }
-
-        public static IWebElement ElementIsClickable(IWebDriver driver, By by, int timeout = 5)
-        {
-            var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(timeout));
-            return wait.Until(SeleniumExtras.WaitHelpers.ExpectedConditions.ElementToBeClickable(by));
-        }
-
-
-        public static bool WaitUntilElementExists(IWebDriver driver, By by, int timeout = 3)
-        {
-            try
-            {
-                var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(timeout));
-                return wait.Until(drv => drv.FindElements(by).Count >= 1);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-        public static bool WaitForElementWithMinimalPrice(IWebDriver driver, By by, string minimalPrice, int timeout = 3)
-        {
-            try
-            {
-                var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(timeout));
-                return wait.Until(drv => drv.FindElement(by).Text.Contains(minimalPrice));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        public static IWebElement FindElement(IWebDriver driver, By by, int timeoutInSeconds = 5)
-        {
-            if (timeoutInSeconds > 0)
-            {
-                var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(timeoutInSeconds));
-                return wait.Until(drv => drv.FindElement(by));
-            }
-            return driver.FindElement(by);
-        }
-        public static ChromeOptions SetChromeOptions(string tempDirectory)
+     
+        static ChromeOptions SetChromeOptions(string tempDirectory)
         {
             var chromeOptions = new ChromeOptions();
             chromeOptions.AddUserProfilePreference("download.default_directory", tempDirectory);
