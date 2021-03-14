@@ -1,6 +1,8 @@
-﻿using System.Linq;
+﻿using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using AlzaSeleniumTest.HelpMethods;
 using FluentAssertions;
 using Microsoft.VisualBasic;
@@ -27,6 +29,7 @@ namespace AlzaSeleniumTest.Tests
             _tempDirectory = Utils.GetTemporaryDirectory();
             _chromeOptions = SetChromeOptions(_tempDirectory);
         }
+
         [TearDown]
         public void TearDown()
         {
@@ -55,31 +58,62 @@ namespace AlzaSeleniumTest.Tests
             
             StringAssert.Contains(successText, doneInfoBlock.Text);
 
-            DownloadOrderPdfAndCancelOrder(_webDriver, ref orderNumber);
+            DownloadOrderPdf(_webDriver, ref orderNumber);
             
             orderNumber = orderNumber.Replace(" ", "");
             var orderDetails = Utils.GetPdfText(Path.Combine(_tempDirectory, orderNumber + ".pdf"));
-            
+
+            orderDetails.Should().Contain(minimalPriceInCategory.Replace("-", "00"));
             orderDetails.Should().Contain($"Způsob úhrady: Hotově - {DeliveryPlace}");
-            orderDetails.Should().Contain("Mobilní telefon Maxcom MM135");
             orderDetails.Should().Contain("Objednávka " + orderNumber);
             orderDetails.Should().Contain(PhoneNumber);
-            orderDetails.Should().Contain("299,00");
             orderDetails.Should().Contain(productName);
+
+            var cancelElement = WaitForElementWithAttribute(_webDriver, By.ClassName("mat-raised-button"), "Zrušit objednávku");
+            cancelElement.Click();
+            
+            FindElement(_webDriver, By.ClassName("flat-button")).Click();
+            ElementIsClickable(_webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted"));
+
+            FindElement(_webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted")).Click();
         }
 
-        private void DownloadOrderPdfAndCancelOrder(ChromeDriver webDriver, ref string orderNumber)
+        public IWebElement WaitForElementWithAttribute(ChromeDriver webDriver, By by, string textValue, int timeout= 10)
+        {
+            IWebElement element = null;
+            var i = 0;
+            while (i < timeout)
+            {
+                i++;
+                var elements = webDriver.FindElements(by);
+                var source = webDriver.PageSource;
+
+                foreach (var elem in elements)
+                {
+                    var i2 = elem.Text;
+
+                }
+                try
+                {
+                    var any = elements.Any(e => e.Text == textValue);
+
+                    return elements.First(el => el.Text == textValue);
+                }
+                catch { }
+                Thread.Sleep(1000);
+            }
+
+            return null;
+        }
+
+        private static void DownloadOrderPdf(IWebDriver webDriver, ref string orderNumber)
         {
             FindElement(webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
             Thread.Sleep(Timeout);
             WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
             var elements = webDriver.FindElements(By.ClassName("mat-raised-button"));
             elements.First(e => e.Text == "Stáhnout PDF").Click();
-            Thread.Sleep(Timeout);
-
-            elements.First(e => e.Text == "Zrušit objednávku").Click();
-            FindElement(webDriver, By.ClassName("flat-button")).Click();
-            FindElement(webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted")).Click();
+            Thread.Sleep(Timeout); //Wait until pdf is available
         }
 
         private static void FillinCustomerInformation(ChromeDriver webDriver)
@@ -104,7 +138,6 @@ namespace AlzaSeleniumTest.Tests
         {
             var productName = FindElement(webDriver, By.ClassName("productInfo__texts__productName")).Text;
             FindElement(webDriver, By.Id("varBToBasketButton")).Click();
-            FindElement(webDriver, By.XPath("//span[text()='Pokračovat']")).Click();
 
             if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody")))
             {
