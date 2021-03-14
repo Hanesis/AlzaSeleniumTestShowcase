@@ -1,11 +1,8 @@
-﻿using System.Collections.ObjectModel;
-using System.Linq;
+﻿using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Threading.Tasks;
 using AlzaSeleniumTest.HelpMethods;
 using FluentAssertions;
-using Microsoft.VisualBasic;
 using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
@@ -58,6 +55,10 @@ namespace AlzaSeleniumTest.Tests
             
             StringAssert.Contains(successText, doneInfoBlock.Text);
 
+            FindElement(_webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
+
+            CloseAdvertisementIfShown(_webDriver);
+
             DownloadOrderPdf(_webDriver, ref orderNumber);
             
             orderNumber = orderNumber.Replace(" ", "");
@@ -68,51 +69,25 @@ namespace AlzaSeleniumTest.Tests
             orderDetails.Should().Contain("Objednávka " + orderNumber);
             orderDetails.Should().Contain(PhoneNumber);
             orderDetails.Should().Contain(productName);
-
-            var cancelElement = WaitForElementWithAttribute(_webDriver, By.ClassName("mat-raised-button"), "Zrušit objednávku");
-            cancelElement.Click();
             
+            CancelOrder();
+        }
+
+        private void CancelOrder()
+        {
+            //Order has to be processed - sometime it takes a while
+            var cancelElement = WaitForElementWithText(_webDriver, By.ClassName("mat-raised-button"), "Zrušit objednávku",30);
+            cancelElement.Click();
             FindElement(_webDriver, By.ClassName("flat-button")).Click();
             ElementIsClickable(_webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted"));
-
             FindElement(_webDriver, By.CssSelector(".mat-raised-button.ng-star-inserted")).Click();
         }
-
-        public IWebElement WaitForElementWithAttribute(ChromeDriver webDriver, By by, string textValue, int timeout= 10)
-        {
-            IWebElement element = null;
-            var i = 0;
-            while (i < timeout)
-            {
-                i++;
-                var elements = webDriver.FindElements(by);
-                var source = webDriver.PageSource;
-
-                foreach (var elem in elements)
-                {
-                    var i2 = elem.Text;
-
-                }
-                try
-                {
-                    var any = elements.Any(e => e.Text == textValue);
-
-                    return elements.First(el => el.Text == textValue);
-                }
-                catch { }
-                Thread.Sleep(1000);
-            }
-
-            return null;
-        }
-
+        
         private static void DownloadOrderPdf(IWebDriver webDriver, ref string orderNumber)
         {
-            FindElement(webDriver, By.XPath($"//a[text()='{orderNumber}']")).Click();
-            Thread.Sleep(Timeout);
-            WaitUntilElementExists(webDriver, By.ClassName("mat-raised-button"));
-            var elements = webDriver.FindElements(By.ClassName("mat-raised-button"));
-            elements.First(e => e.Text == "Stáhnout PDF").Click();
+
+            var downloadElement = WaitForElementWithText(webDriver, By.ClassName("mat-raised-button"), "Stáhnout PDF");
+            downloadElement.Click();
             Thread.Sleep(Timeout); //Wait until pdf is available
         }
 
@@ -133,8 +108,17 @@ namespace AlzaSeleniumTest.Tests
                 FindElement(webDriver, By.CssSelector(".js-min-value.min-value")).GetAttribute("value");
             return minimalPriceInCategory;
         }
+        private static void CloseAdvertisementIfShown(IWebDriver webDriver)
+        {
+            if (WaitUntilElementExists(webDriver, By.ClassName("alzaDialogBody"),2))
+            {
+                FindElement(webDriver, By.ClassName("or-btn__inner")).Click();
+                webDriver.Navigate().Back();
+            }
+        }
 
-        private static string ConfirmOrderInShopingCart(ChromeDriver webDriver)
+
+        private static string ConfirmOrderInShopingCart(IWebDriver webDriver)
         {
             var productName = FindElement(webDriver, By.ClassName("productInfo__texts__productName")).Text;
             FindElement(webDriver, By.Id("varBToBasketButton")).Click();

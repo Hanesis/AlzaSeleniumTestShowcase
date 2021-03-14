@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Linq;
+using System.Threading;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Support.UI;
 
@@ -8,6 +8,26 @@ namespace AlzaSeleniumTest.Tests
 {
     public class TestBase
     {
+
+        public static IWebElement WaitForElementWithText(IWebDriver webDriver, By by, string textValue, int timeout = 10)
+        {
+            var i = 0;
+            while (i < timeout)
+            {
+                i++;
+                var elements = webDriver.FindElements(by);
+
+                try
+                {
+                    var element = elements.First(el => el.Text == textValue);
+                    return element;
+                }
+                catch { }
+                Thread.Sleep(1000);
+            }
+
+            return null;
+        }
 
         public static IWebElement ElementIsClickable(IWebDriver driver, By by, int timeout = 5)
         {
